@@ -1,11 +1,20 @@
+#![feature(fixed_size_array)]
+
 use crate::tags::properties_from_tags;
 use clap::{App, Arg, ArgMatches};
 use geojson::{feature::Id, Feature, GeoJson, Geometry, Value};
-use osmpbfreader::{objects::OsmObj, reader::OsmPbfReader};
+use osmpbfreader::{
+    objects::{Node, OsmObj},
+    reader::OsmPbfReader,
+    NodeId,
+};
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::process::exit;
+use store::Store;
+use store_impl::Long;
 
+mod store_impl;
 mod tags;
 
 fn main() {
@@ -19,6 +28,22 @@ fn main() {
         Ok(f) => f,
         Err(err) => {
             writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+            exit(1);
+        }
+    };
+
+    let temp_dir = match tempdir::TempDir::new("osm-2-ndjson") {
+        Ok(t) => t,
+        Err(err) => {
+            writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stederr");
+            exit(1);
+        }
+    };
+
+    let mut node_store: Store<Long> = match Store::new(temp_dir.path()) {
+        Ok(s) => s,
+        Err(e) => {
+            writeln!(std::io::stderr(), "{:?}", e).expect("Unable to write to stderr");
             exit(1);
         }
     };
@@ -37,11 +62,57 @@ fn main() {
                     foreign_members: None,
                 });
 
+                let node_id: NodeId = node.id.into();
+
+                if let Err(err) = node_store.insert(node_id.into(), node) {
+                    writeln!(std::io::stderr(), "{:?}", err).expect("Unable to write to stderr");
+                }
+
                 if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
                     writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
                 }
             }
-            Ok(OsmObj::Way(way)) => {}
+            Ok(OsmObj::Way(mut way)) => {
+                let geometry = if way.is_closed() {
+                    Geometry::new(Value::Polygon(vec![]))
+                } else {
+                    Geometry::new(Value::LineString(
+                        way.nodes
+                            .iter()
+                            .filter_map(|id| {
+                                let node_id: NodeId = (*id).into();
+                                match node_store.get(&node_id.into()) {
+                                    Ok(node_opt) => {
+                                        if let Some(node) = node_opt {
+                                            let node: Node = node;
+                                            Some(vec![node.lon(), node.lat()])
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    Err(e) => {
+                                        writeln!(std::io::stderr(), "{:?}", e)
+                                            .expect("Unable to write to stderr");
+                                        None
+                                    }
+                                }
+                            })
+                            .collect(),
+                    ))
+                };
+
+                let geojson = GeoJson::Feature(Feature {
+                    bbox: None,
+                    geometry: Some(geometry),
+                    id: Some(Id::Number(way.id.0.into())),
+                    properties: Some(properties_from_tags(&mut *way.tags)),
+                    foreign_members: None,
+                });
+
+                if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
+                    writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+                }
+            }
             Ok(OsmObj::Relation(rel)) => {}
             Err(err) => {
                 writeln!(std::io::stderr(), "{:?}", err).expect("Unable to write to stderr");
