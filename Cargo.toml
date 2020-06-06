@@ -1,5 +1,5 @@
 [package]
-name = "osm-2-ndjson"
+name = "osm"
 version = "0.1.0"
 authors = ["Boyd Johnson <johnson.boyd@gmail.com>"]
 edition = "2018"
@@ -11,9 +11,15 @@ arrayref = "^0.3"
 clap = "^2.33"
 db-key = "^0.0.5"
 flat_map = "^0.0"
-geojson = { version = "^0.16" }
+geojson = "^0.18"
+itertools = "^0.9"
 osmpbfreader = "^0.13"
 serde = "^1.0"
 serde_json = "^1.0"
 store = { path = "../store" }
 tempdir = "^0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

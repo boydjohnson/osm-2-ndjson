@@ -1,140 +1,116 @@
 #![feature(fixed_size_array)]
 
-use crate::tags::properties_from_tags;
-use clap::{App, Arg, ArgMatches};
-use geojson::{feature::Id, Feature, GeoJson, Geometry, Value};
-use osmpbfreader::{
-    objects::{Node, OsmObj},
-    reader::OsmPbfReader,
-    NodeId,
-};
-use std::fs::File;
-use std::io::{BufReader, Write};
-use std::process::exit;
-use store::Store;
-use store_impl::Long;
+use clap::{App, Arg, ArgMatches, SubCommand};
+use std::{fs::File, io::Write, process::exit};
+use tags::split_tags;
 
+mod count;
 mod store_impl;
 mod tags;
+mod to_ndjson;
 
 fn main() {
     let opts = parse_args();
 
-    let filename = opts.value_of("file").expect("filename is required");
+    if let Some("count") = opts.subcommand_name() {
+        let opts = opts
+            .subcommand_matches("count")
+            .expect("Tested for subcommand count already");
 
-    let tags = opts.value_of("tags");
+        let filename = opts.value_of("file").expect("filename is required");
 
-    let f = match File::open(filename) {
-        Ok(f) => f,
-        Err(err) => {
-            writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
-            exit(1);
-        }
-    };
-
-    let temp_dir = match tempdir::TempDir::new("osm-2-ndjson") {
-        Ok(t) => t,
-        Err(err) => {
-            writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stederr");
-            exit(1);
-        }
-    };
-
-    let mut node_store: Store<Long> = match Store::new(temp_dir.path()) {
-        Ok(s) => s,
-        Err(e) => {
-            writeln!(std::io::stderr(), "{:?}", e).expect("Unable to write to stderr");
-            exit(1);
-        }
-    };
-
-    let mut reader = OsmPbfReader::new(BufReader::new(f));
-    for obj in reader.par_iter() {
-        match obj {
-            Ok(OsmObj::Node(mut node)) => {
-                let geometry = Geometry::new(Value::Point(vec![node.lon(), node.lat()]));
-
-                let geojson = GeoJson::Feature(Feature {
-                    bbox: None,
-                    geometry: Some(geometry),
-                    id: Some(Id::Number(node.id.0.into())),
-                    properties: Some(properties_from_tags(&mut *node.tags)),
-                    foreign_members: None,
-                });
-
-                let node_id: NodeId = node.id.into();
-
-                if let Err(err) = node_store.insert(node_id.into(), node) {
-                    writeln!(std::io::stderr(), "{:?}", err).expect("Unable to write to stderr");
-                }
-
-                if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
-                    writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+        let tags = if let Some(tags) = opts.value_of("tags") {
+            match split_tags(tags) {
+                Ok(t) => t,
+                Err(e) => {
+                    writeln!(std::io::stderr(), "{}", e).expect("Unable to write to stderr");
+                    exit(1);
                 }
             }
-            Ok(OsmObj::Way(mut way)) => {
-                let geometry = if way.is_closed() {
-                    Geometry::new(Value::Polygon(vec![]))
-                } else {
-                    Geometry::new(Value::LineString(
-                        way.nodes
-                            .iter()
-                            .filter_map(|id| {
-                                let node_id: NodeId = (*id).into();
-                                match node_store.get(&node_id.into()) {
-                                    Ok(node_opt) => {
-                                        if let Some(node) = node_opt {
-                                            let node: Node = node;
-                                            Some(vec![node.lon(), node.lat()])
-                                        } else {
-                                            None
-                                        }
-                                    }
-                                    Err(e) => {
-                                        writeln!(std::io::stderr(), "{:?}", e)
-                                            .expect("Unable to write to stderr");
-                                        None
-                                    }
-                                }
-                            })
-                            .collect(),
-                    ))
-                };
+        } else {
+            vec![]
+        };
 
-                let geojson = GeoJson::Feature(Feature {
-                    bbox: None,
-                    geometry: Some(geometry),
-                    id: Some(Id::Number(way.id.0.into())),
-                    properties: Some(properties_from_tags(&mut *way.tags)),
-                    foreign_members: None,
-                });
-
-                if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
-                    writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
-                }
-            }
-            Ok(OsmObj::Relation(rel)) => {}
+        let f = match File::open(filename) {
+            Ok(f) => f,
             Err(err) => {
-                writeln!(std::io::stderr(), "{:?}", err).expect("Unable to write to stderr");
+                writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+                exit(1);
             }
-        }
+        };
+
+        count::do_count(f, tags);
+    } else if let Some("to-ndjson") = opts.subcommand_name() {
+        let opts = opts
+            .subcommand_matches("to-ndjson")
+            .expect("Tested for subcommand to-ndjson already");
+
+        let filename = opts.value_of("file").expect("filename is required");
+
+        let tags = if let Some(tags) = opts.value_of("tags") {
+            match split_tags(tags) {
+                Ok(t) => t,
+                Err(e) => {
+                    writeln!(std::io::stderr(), "{}", e).expect("Unable to write to stderr");
+                    exit(1);
+                }
+            }
+        } else {
+            vec![]
+        };
+
+        let f = match File::open(filename) {
+            Ok(f) => f,
+            Err(err) => {
+                writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+                exit(1);
+            }
+        };
+
+        to_ndjson::do_to_ndjson(f, tags);
+    } else {
+        writeln!(std::io::stdout(), "{}", opts.usage()).expect("Unable to write to stdout");
     }
 }
 
 fn parse_args<'a>() -> ArgMatches<'a> {
-    App::new("osm-2-ndjson")
-        .about("stream osm pbf file to ndjson")
-        .arg(
-            Arg::with_name("file")
-                .help("filename of osm.pbf file")
-                .required(true),
+    App::new("osm")
+        .about("cli tool to inspect osm.pbf files")
+        .subcommand(
+            SubCommand::with_name("count")
+                .about("Displays counts of nodes, ways, relations and related tags")
+                .arg(
+                    Arg::with_name("file")
+                        .help("filename of osm.pbf file")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("tags")
+                        .short("t")
+                        .long("tags")
+                        .takes_value(true)
+                        .number_of_values(1)
+                        .help("Filter only tags that match the pattern")
+                        .required(false),
+                ),
         )
-        .arg(
-            Arg::with_name("tags")
-                .short("t")
-                .long("tags")
-                .help("Filter only tags that match the pattern")
-                .required(false),
+        .subcommand(
+            SubCommand::with_name("to-ndjson")
+                .about("Write nodes and ways as Line-Delimited GeoJson to stdout")
+                .arg(
+                    Arg::with_name("file")
+                        .help("filename of osm.pbf file")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("tags")
+                        .short("t")
+                        .long("tags")
+                        .takes_value(true)
+                        .number_of_values(1)
+                        .help("Filter only tags that match the pattern")
+                        .required(false),
+                ),
         )
         .get_matches()
 }

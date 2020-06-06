@@ -1,7 +1,6 @@
 use flat_map::FlatMap;
 use serde_json::{to_value, Map, Value};
-use std::collections::HashMap;
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, Value> {
     let mut state = HashMap::new();
@@ -48,11 +47,24 @@ pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, V
 #[derive(Debug, PartialEq)]
 pub struct TagInner(String, String);
 
-pub fn split_tags(tags: Option<String>) -> Result<(bool, Vec<TagInner>), String> {
+impl TagInner {
+    pub fn key(&self) -> &str {
+        &self.0
+    }
+
+    pub fn value(&self) -> &str {
+        &self.1
+    }
+}
+
+pub fn split_tags(tags: &str) -> Result<Vec<Vec<TagInner>>, String> {
     let mut result = vec![];
 
-    if let Some(t) = tags {
-        let split = t.split("+");
+    for item in tags.split(",") {
+        let split = item.split("+");
+
+        let mut r = vec![];
+
         for item in split {
             let mut key_value: Vec<&str> = item.split("=").collect();
 
@@ -70,14 +82,15 @@ pub fn split_tags(tags: Option<String>) -> Result<(bool, Vec<TagInner>), String>
 
             match key {
                 Some(key) => match value {
-                    Some(value) => result.push(TagInner(key.to_string(), value.to_string())),
+                    Some(value) => r.push(TagInner(key.to_string(), value.to_string())),
                     None => return Err(format!("Key {} missing value", key)),
                 },
                 None => return Err("Missing Key".to_string()),
             }
         }
+        result.push(r);
     }
-    Ok((true, result))
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -88,14 +101,17 @@ mod tests {
     #[test]
     fn tags_and_with_or() {
         assert_eq!(
-            split_tags(Some("amenity=bar+addr:city=Dresden".to_string())),
-            Ok((
-                true,
+            split_tags("amenity=bar+addr:city=Dresden,amenity=bar+addr:city=Berlin"),
+            Ok(vec![
                 vec![
                     TagInner("amenity".to_string(), "bar".to_string()),
                     TagInner("addr:city".to_string(), "Dresden".to_string())
+                ],
+                vec![
+                    TagInner("amenity".to_string(), "bar".to_string()),
+                    TagInner("addr:city".to_string(), "Berlin".to_string())
                 ]
-            ))
+            ])
         );
     }
 }
