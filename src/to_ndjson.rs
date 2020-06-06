@@ -2,6 +2,7 @@ use crate::{
     store_impl::Long,
     tags::{properties_from_tags, TagInner},
 };
+use geo_types::Polygon;
 use geojson::{feature::Id, Feature, GeoJson, Geometry, Value};
 use osmpbfreader::{
     objects::{Node, OsmObj},
@@ -9,7 +10,6 @@ use osmpbfreader::{
     NodeId,
 };
 use std::{
-    collections::VecDeque,
     fs::File,
     io::{BufReader, Write},
     process::exit,
@@ -34,22 +34,22 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
     };
 
     let mut reader = OsmPbfReader::new(BufReader::new(file));
-    for obj in reader.par_iter() {
-        match obj {
-            Ok(OsmObj::Node(mut node)) => {
-                if tags.iter().any(|tags| {
-                    tags.iter()
-                        .all(|t| node.tags.contains(t.key(), t.value()) || node.tags.is_empty())
-                }) || tags.is_empty()
-                {
-                    if node.tags.is_empty() {
-                        let node_id: NodeId = node.id.into();
 
-                        if let Err(err) = node_store.insert(node_id.into(), node) {
-                            writeln!(std::io::stderr(), "{:?}", err)
-                                .expect("Unable to write to stderr");
-                        }
-                    } else {
+    let pred = |obj: &OsmObj| {
+        (obj.is_node() || obj.is_way())
+            && (tags.is_empty()
+                || tags
+                    .iter()
+                    .any(|tags| tags.iter().all(|t| obj.tags().contains(t.key(), t.value()))))
+    };
+
+    let objects = reader.get_objs_and_deps(pred);
+
+    if let Ok(btree_map) = objects {
+        for (_, obj) in btree_map.into_iter() {
+            match obj {
+                OsmObj::Node(mut node) => {
+                    if !node.tags.is_empty() {
                         let geometry = Geometry::new(Value::Point(vec![node.lon(), node.lat()]));
 
                         let geojson = GeoJson::Feature(Feature {
@@ -65,47 +65,51 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
                                 .expect("Unable to write to stderr");
                         }
                     }
+
+                    let node_id: NodeId = node.id.into();
+
+                    if let Err(err) = node_store.insert(node_id.into(), node) {
+                        writeln!(std::io::stderr(), "{:?}", err)
+                            .expect("Unable to write to stderr");
+                    }
                 }
-            }
-            Ok(OsmObj::Way(mut way)) => {
-                if tags
-                    .iter()
-                    .any(|tags| tags.iter().all(|t| way.tags.contains(t.key(), t.value())))
-                    || tags.is_empty()
-                {
+
+                OsmObj::Way(mut way) => {
                     let geometry = if way.is_closed() {
-                        let mut prior_nodes = VecDeque::new();
-                        Geometry::new(Value::Polygon(
-                            way.nodes
-                                .iter()
-                                .filter_map(|id| {
-                                    let node_id: NodeId = (*id).into();
-                                    match node_store.get(&node_id.into()) {
-                                        Ok(node_opt) => {
-                                            if let Some(node) = node_opt {
-                                                let node: Node = node;
-                                                Some(vec![node.lon(), node.lat()])
-                                            } else {
-                                                writeln!(std::io::stderr(), "Missing Node")
-                                                    .expect("Unable to write to stderr");
-                                                None
+                        Geometry::new(
+                            (&geo_types::Geometry::Polygon(Polygon::new(
+                                geo_types::LineString::from(
+                                    way.nodes
+                                        .iter()
+                                        .filter_map(|id| {
+                                            let node_id: NodeId = (*id).into();
+                                            match node_store.get(&node_id.into()) {
+                                                Ok(node_opt) => {
+                                                    if let Some(node) = node_opt {
+                                                        let node: Node = node;
+                                                        Some((node.lon(), node.lat()))
+                                                    } else {
+                                                        writeln!(std::io::stderr(), "Missing Node")
+                                                            .expect("Unable to write to stderr");
+                                                        None
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    writeln!(std::io::stderr(), "{:?}", e)
+                                                        .expect("Unable to write to stderr");
+                                                    None
+                                                }
                                             }
-                                        }
-                                        Err(e) => {
-                                            writeln!(std::io::stderr(), "{:?}", e)
-                                                .expect("Unable to write to stderr");
-                                            None
-                                        }
-                                    }
-                                })
-                                .fold(vec![], |mut arr, item| {
-                                    if let Some(node) = prior_nodes.pop_front() {
-                                        arr.push(vec![node, item.clone()]);
-                                    }
-                                    prior_nodes.push_back(item);
-                                    arr
-                                }),
-                        ))
+                                        })
+                                        .fold(vec![], |mut arr, item| {
+                                            arr.push(item);
+                                            arr
+                                        }),
+                                ),
+                                vec![],
+                            )))
+                                .into(),
+                        )
                     } else {
                         Geometry::new(Value::LineString(
                             way.nodes
@@ -146,10 +150,7 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
                         writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
                     }
                 }
-            }
-            Ok(OsmObj::Relation(rel)) => {}
-            Err(err) => {
-                writeln!(std::io::stderr(), "{:?}", err).expect("Unable to write to stderr");
+                OsmObj::Relation(_) => {}
             }
         }
     }
