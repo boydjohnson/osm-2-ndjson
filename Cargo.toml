@@ -10,7 +10,7 @@ edition = "2018"
 arrayref = "^0.3"
 clap = "^2.33"
 db-key = "^0.0.5"
-flat_map = "^0.0"
+flat_map = "0.0.9"
 geojson = { version = "^0.18", features = ["geo-types"] }
 geo-types = "^0.5"
 itertools = "^0.9"
