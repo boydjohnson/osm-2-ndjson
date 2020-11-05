@@ -1,6 +1,6 @@
 use arrayref::array_ref;
 use db_key::Key;
-use osmpbfreader::NodeId;
+use osmpbfreader::{NodeId, OsmId};
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct Long(pub i64);
@@ -31,5 +31,18 @@ impl From<NodeId> for Long {
 impl From<Long> for NodeId {
     fn from(other: Long) -> NodeId {
         NodeId(other.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OsmIdW(pub OsmId);
+
+impl Key for OsmIdW {
+    fn from_u8(key: &[u8]) -> Self {
+        OsmIdW(bincode::deserialize(key).unwrap())
+    }
+
+    fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
+        f(bincode::serialize(&self.0).unwrap().as_slice())
     }
 }
