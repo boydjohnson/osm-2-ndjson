@@ -17,15 +17,7 @@ use std::{
 use store::Store;
 
 pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
-    let temp_dir = match tempdir::TempDir::new("osm-2-ndjson") {
-        Ok(t) => t,
-        Err(err) => {
-            writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stederr");
-            exit(1);
-        }
-    };
-
-    let mut node_store: Store<Long, Node> = match Store::new(temp_dir.path()) {
+    let mut node_store: Store<Long, Node> = match Store::tmp_store("osm-node-store") {
         Ok(s) => s,
         Err(e) => {
             writeln!(std::io::stderr(), "{:?}", e).expect("Unable to write to stderr");
