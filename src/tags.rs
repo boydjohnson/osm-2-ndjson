@@ -1,8 +1,11 @@
 use flat_map::FlatMap;
 use serde_json::{to_value, Map, Value};
+use smartstring::{LazyCompact, SmartString};
 use std::{collections::HashMap, io::Write};
 
-pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, Value> {
+pub fn properties_from_tags(
+    tags: &mut FlatMap<SmartString<LazyCompact>, SmartString<LazyCompact>>,
+) -> Map<String, Value> {
     let mut state = HashMap::new();
 
     let tags = std::mem::replace(tags, flat_map::FlatMap::new());
@@ -10,8 +13,8 @@ pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, V
     for (key, value) in tags.into_iter() {
         state
             .entry(key)
-            .and_modify(|v: &mut Vec<String>| v.push(value.clone()))
-            .or_insert(vec![value]);
+            .and_modify(|v: &mut Vec<String>| v.push(value.to_string()))
+            .or_insert(vec![value.to_string()]);
     }
 
     let mut properties = Map::new();
@@ -26,7 +29,7 @@ pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, V
                 }
             };
             if let Some(v) = v {
-                properties.insert(key, v);
+                properties.insert(key.to_string(), v);
             }
         } else {
             let v = match to_value(value.pop()) {
@@ -37,7 +40,7 @@ pub fn properties_from_tags(tags: &mut FlatMap<String, String>) -> Map<String, V
                 }
             };
             if let Some(v) = v {
-                properties.insert(key, v);
+                properties.insert(key.to_string(), v);
             }
         }
     }

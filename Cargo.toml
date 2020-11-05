@@ -14,9 +14,10 @@ flat_map = "0.0.9"
 geojson = { version = "^0.20", features = ["geo-types"] }
 geo-types = "^0.6"
 itertools = "^0.9"
-osmpbfreader = "^0.13"
+osmpbfreader = "^0.14"
 serde = "^1.0"
 serde_json = "^1.0"
+smartstring = "^0.2"
 store = { path = "../store" }
 tempdir = "^0.3"
 
