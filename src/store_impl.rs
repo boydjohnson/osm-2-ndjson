@@ -1,7 +1,6 @@
 use arrayref::array_ref;
 use db_key::Key;
 use osmpbfreader::NodeId;
-use std::array::FixedSizeArray;
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct Long(pub i64);

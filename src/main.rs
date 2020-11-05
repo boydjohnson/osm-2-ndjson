@@ -1,4 +1,4 @@
-#![feature(fixed_size_array)]
+#![feature(array_methods)]
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use std::{fs::File, io::Write, process::exit};
