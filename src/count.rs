@@ -1,7 +1,8 @@
 use crate::tags::TagInner;
 use itertools::Itertools;
 use osmpbfreader::{OsmObj, OsmPbfReader};
-use std::{collections::HashMap, fs::File, hash::Hash};
+use std::fs::File;
+use store::{error::StoreError, key_impl::StringW, Store};
 
 pub fn do_count(osm_file: File, tags: Vec<Vec<TagInner>>) {
     let mut tag_cache = Counter::new();
@@ -19,7 +20,7 @@ pub fn do_count(osm_file: File, tags: Vec<Vec<TagInner>>) {
                         nodes += 1;
 
                         for item in node.tags.iter() {
-                            tag_cache.insert((item.0.clone(), item.1.clone()));
+                            tag_cache.insert(format!("{}={}", item.0, item.1)).unwrap();
                         }
                     }
                 }
@@ -35,7 +36,7 @@ pub fn do_count(osm_file: File, tags: Vec<Vec<TagInner>>) {
                             closed_ways += 1;
                         }
                         for item in way.tags.iter() {
-                            tag_cache.insert((item.0.clone(), item.1.clone()));
+                            tag_cache.insert(format!("{}={}", item.0, item.1)).unwrap();
                         }
                     }
                 }
@@ -47,7 +48,7 @@ pub fn do_count(osm_file: File, tags: Vec<Vec<TagInner>>) {
                     {
                         relations += 1;
                         for item in relation.tags.iter() {
-                            tag_cache.insert((item.0.clone(), item.1.clone()));
+                            tag_cache.insert(format!("{}={}", item.0, item.1)).unwrap();
                         }
                     }
                 }
@@ -61,36 +62,35 @@ pub fn do_count(osm_file: File, tags: Vec<Vec<TagInner>>) {
     println!("{} closed ways", closed_ways);
     println!("{} relations", relations);
     for item in tag_cache.top_n(10) {
-        println!("{}={} {}", (item.0).0, (item.0).1, item.1);
+        let first = item.0;
+        println!("{} {}", first.0, item.1);
     }
 }
 
-pub struct Counter<T>
-where
-    T: Hash,
-{
-    items: HashMap<T, u64>,
+pub struct Counter {
+    items: Store<StringW, u64>,
 }
 
-impl<T> Counter<T>
-where
-    T: Hash + Eq,
-{
+impl Counter {
     pub fn new() -> Self {
         Counter {
-            items: HashMap::default(),
+            items: Store::tmp_store("osm-count").unwrap(),
         }
     }
 
-    pub fn insert(&mut self, item: T) {
+    pub fn insert(&mut self, item: String) -> Result<(), StoreError> {
+        let item = StringW::from(item);
         self.items
             .entry(item)
+            .unwrap()
             .and_modify(|val| *val += 1)
-            .or_insert(1);
+            .unwrap()
+            .or_insert(1)?;
+        Ok(())
     }
 
-    pub fn top_n(&self, n: usize) -> impl Iterator<Item = (&T, &u64)> {
-        Itertools::sorted_by(self.items.iter(), |item1, item2| item1.1.cmp(item2.1))
+    pub fn top_n(&self, n: usize) -> impl Iterator<Item = (StringW, u64)> {
+        Itertools::sorted_by(self.items.iter(), |item1, item2| item1.1.cmp(&item2.1))
             .rev()
             .take(n)
     }
