@@ -2,7 +2,7 @@ use arrayref::array_ref;
 use db_key::Key;
 use osmpbfreader::NodeId;
 
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct Long(pub i64);
 
 impl Key for Long {
