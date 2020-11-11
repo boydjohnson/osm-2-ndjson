@@ -5,7 +5,8 @@ authors = ["Boyd Johnson <johnson.boyd@gmail.com>"]
 edition = "2018"
 
 description = "CLI tool for turning osm pbf files into ndjson"
-
+license-file = "LICENSE"
+readme = "README.md"
 
 [dependencies]
 arrayref = "^0.3"
