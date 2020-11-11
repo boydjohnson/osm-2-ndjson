@@ -59,12 +59,15 @@ ARGS:
 
 ### Installing
 
-Needs nightly rust compiler
+Needs nightly rust compiler as well as:
 
-Right now
+- a c++ compiler (gcc or clang usually)
+- cmake
+
+Install via cargo
 
 ```
-cargo +nightly install https://github.com/boydjohnson/osm-2-ndjson
+cargo +nightly install --git https://github.com/boydjohnson/osm-2-ndjson
 
 ```
 
