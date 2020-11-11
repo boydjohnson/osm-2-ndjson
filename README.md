@@ -59,7 +59,16 @@ ARGS:
 
 ### Installing
 
-Right now 
+Needs nightly rust compiler
+
+Right now
+
+```
+cargo +nightly install https://github.com/boydjohnson/osm-2-ndjson
+
+```
+
+or
 
 ```
 git clone git@github.com/boydjohnson/osm-2-ndjson.git
