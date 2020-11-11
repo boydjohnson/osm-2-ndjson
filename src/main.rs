@@ -74,8 +74,9 @@ fn main() {
 }
 
 fn parse_args<'a>() -> ArgMatches<'a> {
-    App::new("osm")
-        .about("cli tool to inspect osm.pbf files")
+    App::new("osm-2-ndjson")
+        .about("cli tool to turn osm.pbf files into ndjson")
+        .version("0.1.0")
         .subcommand(
             SubCommand::with_name("count")
                 .about("Displays counts of nodes, ways, relations and related tags")
@@ -90,13 +91,13 @@ fn parse_args<'a>() -> ArgMatches<'a> {
                         .long("tags")
                         .takes_value(true)
                         .number_of_values(1)
-                        .help("Filter only tags that match the pattern")
+                        .help("Filter only tags that match. '+' is 'and' and ',' is or")
                         .required(false),
                 ),
         )
         .subcommand(
             SubCommand::with_name("to-ndjson")
-                .about("Write nodes and ways as Line-Delimited GeoJson to stdout")
+                .about("Write nodes and ways as ndjson GeoJson to stdout")
                 .arg(
                     Arg::with_name("file")
                         .help("filename of osm.pbf file")
@@ -108,7 +109,7 @@ fn parse_args<'a>() -> ArgMatches<'a> {
                         .long("tags")
                         .takes_value(true)
                         .number_of_values(1)
-                        .help("Filter only tags that match the pattern")
+                        .help("Filter only tags that match. '+' is 'and' and ',' is or")
                         .required(false),
                 ),
         )
