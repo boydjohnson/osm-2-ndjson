@@ -76,7 +76,7 @@ fn main() {
 fn parse_args<'a>() -> ArgMatches<'a> {
     App::new("osm-2-ndjson")
         .about("cli tool to turn osm.pbf files into ndjson")
-        .version("0.1.0")
+        .version("0.1.1")
         .subcommand(
             SubCommand::with_name("count")
                 .about("Displays counts of nodes, ways, relations and related tags")

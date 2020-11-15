@@ -1,6 +1,6 @@
 [package]
 name = "osm-2-ndjson"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Boyd Johnson <johnson.boyd@gmail.com>"]
 edition = "2018"
 
