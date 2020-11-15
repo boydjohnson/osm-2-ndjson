@@ -7,7 +7,7 @@ use geojson::{feature::Id, Feature, GeoJson, Geometry, Value};
 use osmpbfreader::{
     objects::{Node, OsmObj},
     reader::OsmPbfReader,
-    NodeId, OsmId, StoreObjs,
+    NodeId, OsmId, StoreObjs, Tags,
 };
 use std::{
     fs::File,
@@ -27,13 +27,7 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
 
     let mut reader = OsmPbfReader::new(BufReader::new(file));
 
-    let pred = |obj: &OsmObj| {
-        (obj.is_node() || obj.is_way())
-            && (tags.is_empty()
-                || tags
-                    .iter()
-                    .any(|tags| tags.iter().all(|t| obj.tags().contains(t.key(), t.value()))))
-    };
+    let pred = |obj: &OsmObj| (obj.is_node() || obj.is_way()) && (matches_tags(&tags, &obj.tags()));
 
     let mut objects = Objects::default();
 
@@ -42,7 +36,7 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
     for (_, obj) in objects.into_iter() {
         match obj {
             OsmObj::Node(mut node) => {
-                if !node.tags.is_empty() {
+                if !node.tags.is_empty() && matches_tags(&tags, &node.tags) {
                     let geometry = Geometry::new(Value::Point(vec![node.lon(), node.lat()]));
 
                     let geojson = GeoJson::Feature(Feature {
@@ -66,84 +60,93 @@ pub fn do_to_ndjson(file: File, tags: Vec<Vec<TagInner>>) {
             }
 
             OsmObj::Way(mut way) => {
-                let geometry = if way.is_closed() {
-                    Geometry::new(
-                        (&geo_types::Geometry::Polygon(Polygon::new(
-                            geo_types::LineString::from(
-                                way.nodes
-                                    .iter()
-                                    .filter_map(|id| {
-                                        let node_id: NodeId = (*id).into();
-                                        match node_store.get(&node_id.into()) {
-                                            Ok(node_opt) => {
-                                                if let Some(node) = node_opt {
-                                                    let node: Node = node;
-                                                    Some((node.lon(), node.lat()))
-                                                } else {
-                                                    writeln!(std::io::stderr(), "Missing Node")
+                if matches_tags(&tags, &way.tags) {
+                    let geometry = if way.is_closed() {
+                        Geometry::new(
+                            (&geo_types::Geometry::Polygon(Polygon::new(
+                                geo_types::LineString::from(
+                                    way.nodes
+                                        .iter()
+                                        .filter_map(|id| {
+                                            let node_id: NodeId = (*id).into();
+                                            match node_store.get(&node_id.into()) {
+                                                Ok(node_opt) => {
+                                                    if let Some(node) = node_opt {
+                                                        let node: Node = node;
+                                                        Some((node.lon(), node.lat()))
+                                                    } else {
+                                                        writeln!(std::io::stderr(), "Missing Node")
+                                                            .expect("Unable to write to stderr");
+                                                        None
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    writeln!(std::io::stderr(), "{:?}", e)
                                                         .expect("Unable to write to stderr");
                                                     None
                                                 }
                                             }
-                                            Err(e) => {
-                                                writeln!(std::io::stderr(), "{:?}", e)
+                                        })
+                                        .fold(vec![], |mut arr, item| {
+                                            arr.push(item);
+                                            arr
+                                        }),
+                                ),
+                                vec![],
+                            )))
+                                .into(),
+                        )
+                    } else {
+                        Geometry::new(Value::LineString(
+                            way.nodes
+                                .iter()
+                                .filter_map(|id| {
+                                    let node_id: NodeId = (*id).into();
+                                    match node_store.get(&node_id.into()) {
+                                        Ok(node_opt) => {
+                                            if let Some(node) = node_opt {
+                                                let node: Node = node;
+                                                Some(vec![node.lon(), node.lat()])
+                                            } else {
+                                                writeln!(std::io::stderr(), "{}", "Missing node")
                                                     .expect("Unable to write to stderr");
                                                 None
                                             }
                                         }
-                                    })
-                                    .fold(vec![], |mut arr, item| {
-                                        arr.push(item);
-                                        arr
-                                    }),
-                            ),
-                            vec![],
-                        )))
-                            .into(),
-                    )
-                } else {
-                    Geometry::new(Value::LineString(
-                        way.nodes
-                            .iter()
-                            .filter_map(|id| {
-                                let node_id: NodeId = (*id).into();
-                                match node_store.get(&node_id.into()) {
-                                    Ok(node_opt) => {
-                                        if let Some(node) = node_opt {
-                                            let node: Node = node;
-                                            Some(vec![node.lon(), node.lat()])
-                                        } else {
-                                            writeln!(std::io::stderr(), "{}", "Missing node")
+                                        Err(e) => {
+                                            writeln!(std::io::stderr(), "{:?}", e)
                                                 .expect("Unable to write to stderr");
                                             None
                                         }
                                     }
-                                    Err(e) => {
-                                        writeln!(std::io::stderr(), "{:?}", e)
-                                            .expect("Unable to write to stderr");
-                                        None
-                                    }
-                                }
-                            })
-                            .collect(),
-                    ))
-                };
+                                })
+                                .collect(),
+                        ))
+                    };
 
-                let geojson = GeoJson::Feature(Feature {
-                    bbox: None,
-                    geometry: Some(geometry),
-                    id: Some(Id::Number(way.id.0.into())),
-                    properties: Some(properties_from_tags(&mut *way.tags)),
-                    foreign_members: None,
-                });
+                    let geojson = GeoJson::Feature(Feature {
+                        bbox: None,
+                        geometry: Some(geometry),
+                        id: Some(Id::Number(way.id.0.into())),
+                        properties: Some(properties_from_tags(&mut *way.tags)),
+                        foreign_members: None,
+                    });
 
-                if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
-                    writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+                    if let Err(err) = writeln!(std::io::stdout(), "{}", geojson.to_string()) {
+                        writeln!(std::io::stderr(), "{}", err).expect("Unable to write to stderr");
+                    }
                 }
             }
             OsmObj::Relation(_) => {}
         }
     }
+}
+
+fn matches_tags(tags: &[Vec<TagInner>], osm_tags: &Tags) -> bool {
+    tags.is_empty()
+        || tags
+            .iter()
+            .any(|tags| tags.iter().all(|t| osm_tags.contains(t.key(), t.value())))
 }
 
 struct Objects(Store<OsmIdW, OsmObj>);
